@@ -754,6 +754,12 @@ app.use('/api/anthropic', requireAuth, checkChatLimit, anthropicRouter);
 app.use('/api/telemedicine', telemedicineRouter);
 app.use('/api/subscription', subscriptionRouter);
 
+// Explicit route for domain verification to bypass Vercel static dotfile limits
+app.get('/.well-known/securescan-verify.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(process.env.SECURESCAN_VERIFY_KEY || 'This is a placeholder for securescan-verify.txt. Please configure SECURESCAN_VERIFY_KEY in Vercel environment variables.');
+});
+
 // Serve static files from public directory
 app.use(express.static('public', { dotfiles: 'allow' }));
 
