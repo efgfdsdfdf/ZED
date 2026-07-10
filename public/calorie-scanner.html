@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Zed — Calorie Scanner</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="zed.css"/>
+<style>
+/* ════════════════════════════════════════════════════
+   CALORIE SCANNER — PAGE STYLES
+   ════════════════════════════════════════════════════ */
+.cal-wrap { padding:2rem 2rem 3rem; max-width:1100px; display:flex; flex-direction:column; gap:2rem; }
+
+/* ── Page header ──────────────────────────────────── */
+.page-header h1 { font-family:'Syne',sans-serif; font-size:1.9rem; font-weight:800; letter-spacing:-.03em; line-height:1.2; }
+.page-header p  { font-size:var(--text-base); color:var(--muted); margin-top:.5rem; line-height:1.65; max-width:600px; }
+
+/* ── Main layout ──────────────────────────────────── */
+.cal-layout { display:grid; grid-template-columns:1fr 1fr; gap:1.6rem; align-items:start; }
+
+/* ── Capture card ─────────────────────────────────── */
+.capture-card {
+  background:var(--card); border:1.5px solid var(--border);
+  border-radius:var(--radius-xl); overflow:hidden;
+}
+
+/* Viewfinder */
+.viewfinder {
+  position:relative; background:#000; aspect-ratio:4/3;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+#cam-video   { width:100%; height:100%; object-fit:cover; display:none; }
+#cam-canvas  { display:none; }
+#preview-img { width:100%; height:100%; object-fit:cover; display:none; }
+
+/* Scanning corners */
+.vf-frame {
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  pointer-events:none;
+}
+.vf-box {
+  width:68%; aspect-ratio:1; position:relative;
+}
+.vf-box::before, .vf-box::after,
+.vf-bl, .vf-br {
+  content:''; position:absolute; width:24px; height:24px;
+  border-color:rgba(0,180,166,.85); border-style:solid;
+}
+.vf-box::before  { top:0;    left:0;  border-width:3px 0 0 3px; border-radius:5px 0 0 0; }
+.vf-box::after   { top:0;    right:0; border-width:3px 3px 0 0; border-radius:0 5px 0 0; }
+.vf-bl { bottom:0; left:0;  border-width:0 0 3px 3px; border-radius:0 0 0 5px; }
+.vf-br { bottom:0; right:0; border-width:0 3px 3px 0; border-radius:0 0 5px 0; }
+
+/* Scan sweep line */
+.scan-sweep {
+  position:absolute; left:16%; right:16%; height:2px;
+  background:linear-gradient(90deg, transparent, var(--teal-light), transparent);
+  box-shadow:0 0 10px var(--teal), 0 0 4px var(--teal-light);
+  top:16%; display:none;
+  animation:sweep-down 2s ease-in-out infinite;
+}
+@keyframes sweep-down {
+  0%   { transform:translateY(0);    opacity:0; }
+  10%  { opacity:1; }
+  90%  { opacity:1; }
+  100% { transform:translateY(calc(68vw * .55)); opacity:0; }
+}
+.scan-sweep.active { display:block; }
+
+/* Idle state */
+.vf-idle {
+  position:absolute; inset:0;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:.9rem; background:rgba(0,0,0,.72);
+}
+.vf-idle-icon { font-size:3.5rem; opacity:.45; }
+.vf-idle p { font-size:var(--text-sm); color:rgba(255,255,255,.4); text-align:center; max-width:200px; line-height:1.55; }
+
+/* Preview captured badge */
+.preview-badge {
+  position:absolute; top:.75rem; right:.75rem;
+  background:rgba(0,212,160,.2); border:1.5px solid rgba(0,212,160,.4);
+  color:var(--success); font-size:var(--text-xs); font-weight:700;
+  padding:.3rem .75rem; border-radius:99px; display:none;
+}
+
+/* Camera controls */
+.cam-controls { display:flex; gap:.65rem; padding:1.1rem 1.2rem; flex-wrap:wrap; border-top:1px solid var(--border); }
+
+/* ── Upload mode ──────────────────────────────────── */
+.upload-zone {
+  aspect-ratio:4/3;
+  border:2px dashed rgba(255,255,255,.13);
+  border-radius:var(--radius-lg);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:1rem; cursor:pointer; transition:all .2s; padding:2rem; text-align:center;
+  background:rgba(255,255,255,.02);
+}
+.upload-zone:hover, .upload-zone.drag-over { border-color:var(--teal); background:rgba(0,180,166,.06); }
+.upload-zone h3 { font-family:'Syne',sans-serif; font-size:var(--text-md); font-weight:700; }
+.upload-zone p  { font-size:var(--text-sm); color:var(--muted); line-height:1.55; }
+#file-input     { display:none; }
+
+/* ── Mode tabs ────────────────────────────────────── */
+.mode-tabs { display:flex; gap:.55rem; background:rgba(255,255,255,.05); border:1.5px solid var(--border); border-radius:var(--radius-md); padding:.32rem; }
+.mode-tab  {
+  flex:1; padding:.52rem; border-radius:var(--radius-sm);
+  font-size:var(--text-sm); font-weight:600; cursor:pointer;
+  color:rgba(255,255,255,.42); transition:all .18s; border:none; background:transparent;
+  text-align:center;
+}
+.mode-tab.active { background:var(--card); color:#fff; box-shadow:0 2px 12px rgba(0,0,0,.25); border:1px solid var(--border); }
+
+/* ── Portion adjuster ─────────────────────────────── */
+.portion-row {
+  display:flex; align-items:center; gap:.9rem;
+  padding:1rem 1.2rem; border-top:1px solid var(--border);
+}
+.portion-label { font-size:var(--text-sm); color:var(--muted); white-space:nowrap; }
+.portion-btns  { display:flex; align-items:center; gap:.5rem; margin-left:auto; }
+.portion-btn   {
+  width:34px; height:34px; border-radius:var(--radius-sm);
+  background:rgba(255,255,255,.07); border:1.5px solid var(--border);
+  color:#fff; font-size:1.2rem; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:all .18s; font-weight:700;
+}
+.portion-btn:hover { background:rgba(0,180,166,.15); border-color:var(--border-t); }
+.portion-val   { font-family:'Syne',sans-serif; font-size:1.1rem; font-weight:800; min-width:2rem; text-align:center; }
+
+/* ── Result panel ─────────────────────────────────── */
+.result-panel { display:flex; flex-direction:column; gap:1.3rem; }
+
+/* Empty state */
+.result-empty {
+  background:var(--card); border:1.5px solid var(--border);
+  border-radius:var(--radius-xl); padding:2.5rem 2rem; text-align:center;
+}
+.result-empty-icon { font-size:3.5rem; margin-bottom:1rem; opacity:.38; }
+.result-empty h3   { font-family:'Syne',sans-serif; font-size:var(--text-lg); font-weight:700; margin-bottom:.55rem; }
+.result-empty p    { font-size:var(--text-sm); color:var(--muted); line-height:1.7; }
+
+/* Feature list */
+.feature-list { display:flex; flex-direction:column; gap:.45rem; margin-top:1.2rem; text-align:left; padding:1rem 1.1rem; background:rgba(255,255,255,.04); border-radius:var(--radius-md); }
+.feature-list div { font-size:var(--text-sm); display:flex; align-items:center; gap:.65rem; color:rgba(255,255,255,.7); }
+
+/* Loading state */
+.result-loading {
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  gap:1.1rem; padding:3rem; text-align:center;
+  background:var(--card); border:1.5px solid var(--border); border-radius:var(--radius-xl);
+}
+.result-loading.active { display:flex; }
+.spin {
+  width:52px; height:52px; border-radius:50%;
+  border:3px solid rgba(0,180,166,.18); border-top-color:var(--teal);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin { to{transform:rotate(360deg)} }
+.result-loading p { font-size:var(--text-base); color:var(--muted); line-height:1.6; }
+
+/* ── Calorie card (main result) ───────────────────── */
+.calorie-card {
+  background:linear-gradient(145deg,rgba(0,180,166,.11),rgba(79,200,224,.05));
+  border:1.5px solid rgba(0,180,166,.26); border-radius:var(--radius-xl);
+  padding:1.75rem; display:none; flex-direction:column; gap:1.3rem;
+  animation:fade-up .5s both;
+}
+.calorie-card.visible { display:flex; }
+
+/* Dish name + confidence */
+.cc-header { display:flex; align-items:flex-start; gap:1rem; }
+.cc-icon   { width:52px; height:52px; border-radius:15px; background:rgba(0,180,166,.14); border:1.5px solid rgba(0,180,166,.28); display:flex; align-items:center; justify-content:center; font-size:1.5rem; flex-shrink:0; }
+.cc-dish   { font-family:'Syne',sans-serif; font-size:1.2rem; font-weight:800; line-height:1.25; }
+.cc-conf   { font-size:var(--text-xs); margin-top:.22rem; }
+
+/* Big calorie number */
+.cal-display {
+  display:flex; align-items:flex-end; gap:.6rem;
+  padding:1.2rem 1.4rem;
+  background:rgba(0,0,0,.25); border-radius:var(--radius-md);
+  border:1px solid rgba(0,180,166,.18);
+}
+.cal-num   { font-family:'Syne',sans-serif; font-size:3.2rem; font-weight:800; line-height:1; color:var(--teal-light); }
+.cal-unit  { font-size:var(--text-sm); color:var(--muted); margin-bottom:.4rem; }
+.cal-range { font-size:var(--text-xs); color:var(--muted); margin-left:auto; align-self:center; text-align:right; line-height:1.5; }
+
+/* Daily % bar */
+.daily-pct {
+  display:flex; flex-direction:column; gap:.45rem;
+}
+.daily-pct-label { display:flex; justify-content:space-between; font-size:var(--text-sm); }
+.daily-pct-label span:last-child { color:var(--teal-light); font-weight:700; }
+.daily-bar { height:10px; background:rgba(255,255,255,.07); border-radius:99px; overflow:hidden; }
+.daily-bar-fill { height:100%; border-radius:99px; transition:width .8s var(--ease-out); }
+
+/* Macros grid */
+.macros-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.85rem; }
+.macro-card  {
+  background:rgba(255,255,255,.05); border:1.5px solid var(--border);
+  border-radius:var(--radius-md); padding:.9rem .75rem; text-align:center;
+}
+.macro-val  { font-family:'Syne',sans-serif; font-size:1.25rem; font-weight:800; line-height:1; }
+.macro-name { font-size:var(--text-xs); color:var(--muted); margin-top:.25rem; text-transform:uppercase; letter-spacing:.06em; }
+.macro-unit { font-size:.68rem; color:rgba(255,255,255,.3); }
+
+/* Ingredients list */
+.ingredients-section { display:flex; flex-direction:column; gap:.6rem; }
+.ing-header { font-size:var(--text-xs); font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+.ing-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.65rem .9rem; background:rgba(255,255,255,.04);
+  border-radius:var(--radius-sm); border:1px solid var(--border);
+  font-size:var(--text-sm);
+}
+.ing-name { flex:1; min-width:0; }
+.ing-cal  { color:var(--teal-light); font-weight:700; font-family:'Syne',sans-serif; margin-left:.9rem; white-space:nowrap; }
+
+/* Health rating */
+.health-rating {
+  display:flex; align-items:center; gap:1rem; padding:.9rem 1.1rem;
+  border-radius:var(--radius-md); border:1px solid; font-size:var(--text-sm); font-weight:500; line-height:1.55;
+}
+.health-rating.excellent { background:rgba(0,212,160,.1);  color:var(--success); border-color:rgba(0,212,160,.2);  }
+.health-rating.good      { background:rgba(79,200,224,.09); color:var(--sky);     border-color:rgba(79,200,224,.2); }
+.health-rating.moderate  { background:rgba(255,170,68,.09); color:var(--warn);    border-color:rgba(255,170,68,.2); }
+.health-rating.poor      { background:rgba(255,92,122,.1);  color:var(--error);   border-color:rgba(255,92,122,.2); }
+
+/* Advice */
+.ai-advice { padding:1rem 1.2rem; background:rgba(0,180,166,.07); border:1.5px solid rgba(0,180,166,.18); border-radius:var(--radius-md); font-size:var(--text-sm); line-height:1.7; color:rgba(255,255,255,.82); }
+.ai-advice strong { color:var(--teal-light); }
+
+/* Result actions */
+.result-actions { display:flex; gap:.75rem; flex-wrap:wrap; }
+
+/* ── Daily log ────────────────────────────────────── */
+.daily-log-card { background:var(--card); border:1.5px solid var(--border); border-radius:var(--radius-lg); padding:1.5rem; }
+.dl-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.2rem; flex-wrap:wrap; gap:.5rem; }
+.dl-title  { font-family:'Syne',sans-serif; font-size:var(--text-sm); font-weight:800; display:flex; align-items:center; gap:.5rem; }
+.dl-totals { display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; margin-bottom:1.2rem; }
+.dl-total  { background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:var(--radius-sm); padding:.7rem; text-align:center; }
+.dl-total-val  { font-family:'Syne',sans-serif; font-size:1.3rem; font-weight:800; line-height:1; }
+.dl-total-lbl  { font-size:var(--text-xs); color:var(--muted); margin-top:.2rem; }
+.dl-item   { display:flex; align-items:center; gap:.85rem; padding:.65rem 0; border-bottom:1px solid rgba(255,255,255,.05); }
+.dl-item:last-child { border-bottom:none; }
+.dl-ico    { width:36px; height:36px; border-radius:10px; background:rgba(0,180,166,.1); display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
+.dl-info   { flex:1; min-width:0; }
+.dl-name   { font-size:var(--text-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dl-meta   { font-size:var(--text-xs); color:var(--muted); margin-top:.1rem; }
+.dl-cal    { font-family:'Syne',sans-serif; font-size:var(--text-md); font-weight:800; color:var(--teal-light); flex-shrink:0; }
+.dl-del    { width:28px; height:28px; border-radius:7px; background:rgba(255,92,122,.1); border:1px solid rgba(255,92,122,.2); color:var(--error); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:.85rem; transition:all .18s; flex-shrink:0; }
+.dl-del:hover { background:rgba(255,92,122,.22); }
+.dl-empty  { text-align:center; padding:1.5rem; color:rgba(255,255,255,.28); font-size:var(--text-sm); line-height:1.65; }
+
+/* Goal bar */
+.goal-bar { margin-top:1rem; }
+.goal-bar-track { height:12px; background:rgba(255,255,255,.07); border-radius:99px; overflow:hidden; margin:6px 0; }
+.goal-bar-fill  { height:100%; border-radius:99px; transition:width .6s var(--ease-out); }
+.goal-bar-fill.ok   { background:linear-gradient(90deg,var(--teal),var(--sky)); }
+.goal-bar-fill.over { background:linear-gradient(90deg,var(--warn),var(--error)); }
+.goal-meta { display:flex; justify-content:space-between; font-size:var(--text-xs); color:var(--muted); }
+
+/* ════════════════════════════════════════════════════
+   RESPONSIVE
+   ════════════════════════════════════════════════════ */
+@media(max-width:900px) {
+  .cal-layout    { grid-template-columns:1fr; }
+  .macros-grid   { grid-template-columns:repeat(2,1fr); }
+}
+@media(max-width:768px) {
+  .cal-wrap      { padding:1.2rem 1rem 2.5rem; gap:1.5rem; }
+  .mode-tabs     { width:100%; }
+  .dl-totals     { grid-template-columns:repeat(3,1fr); }
+}
+@media(max-width:480px) {
+  .macros-grid   { grid-template-columns:repeat(2,1fr); }
+  .cal-num       { font-size:2.6rem; }
+  .dl-totals     { grid-template-columns:1fr 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="loader"><div class="loader-logo">Zed</div><div class="loader-bar-wrap"><div class="loader-bar"></div></div></div>
+<div id="nav-overlay" onclick="zedMobileNav()"></div>
+
+<div class="shell">
+  <!-- ══════════ SIDEBAR ══════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <a href="index.html" class="logo">Zed</a>
+      <span class="logo-badge">Pro</span>
+    </div>
+    <a href="profile.html" class="user-block">
+      <div class="user-av" id="sb-av">👤</div>
+      <div><div class="user-name" id="sb-name">Loading…</div><div class="user-sub" id="sb-sub">✦ Premium</div></div>
+    </a>
+    <div style="flex:1;overflow-y:auto">
+      <div class="nav-section">
+        <div class="nav-label">Main</div>
+        <a href="dashboard.html"          class="nav-item"><span class="nav-icon">📊</span>Dashboard</a>
+        <a href="subscription.html"       class="nav-item"><span class="nav-icon">💎</span>Subscription</a>
+        <a href="admin.html"              class="nav-item"><span class="nav-icon">🛡️</span>Admin</a>
+        <a href="telemedicine-portal.html"class="nav-item"><span class="nav-icon">🩺</span>Doctors</a>
+        <a href="bookings.html"           class="nav-item"><span class="nav-icon">📅</span>Bookings</a>
+        <a href="chat.html"               class="nav-item"><span class="nav-icon">🤖</span>AI Chat</a>
+        <a href="symptoms.html"           class="nav-item"><span class="nav-icon">🔬</span>Symptom Checker</a>
+        <a href="report.html"             class="nav-item"><span class="nav-icon">📋</span>Report Analyzer</a>
+        <a href="medicine-scanner.html"   class="nav-item"><span class="nav-icon">💊</span>Medicine Scanner</a>
+        <a href="calorie-scanner.html"    class="nav-item active"><span class="nav-icon">🍽️</span>Calorie Scanner</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Health</div>
+        <a href="vitals.html"    class="nav-item"><span class="nav-icon">❤️</span>Vitals Check</a>
+        <a href="tips.html"      class="nav-item"><span class="nav-icon">💡</span>Health Tips</a>
+        <a href="hospitals.html" class="nav-item"><span class="nav-icon">🏥</span>Find Hospitals</a>
+        <a href="profile.html"   class="nav-item"><span class="nav-icon">👤</span>My Profile</a>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="emergency-btn" onclick="location.href='emergency.html'">🚨 Emergency Guide</button>
+      <button onclick="ZedAuth.signOut()" style="width:100%;margin-top:.6rem;padding:.62rem;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:9px;color:rgba(255,255,255,.38);font-size:var(--text-xs);cursor:pointer;transition:color .18s" onmouseover="this.style.color='rgba(255,255,255,.75)'" onmouseout="this.style.color='rgba(255,255,255,.38)'">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- ══════════ MAIN ══════════ -->
+  <div class="main">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:.85rem">
+        <button class="hamburger" onclick="zedMobileNav()"><span class="hamburger-mid"></span></button>
+        <div>
+          <div class="topbar-title">🍽️ Calorie Scanner</div>
+          <div class="topbar-sub">Snap food → get instant accurate nutrition</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="btn btn-ghost btn-sm" onclick="clearLog()">🗑 Clear Log</button>
+        <a href="chat.html" class="btn btn-primary btn-sm">🤖 Ask AI</a>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="scroll-area">
+      <div class="cal-wrap">
+
+        <!-- ── PAGE HEADER ──────────────── -->
+        <div class="page-header anim-1">
+          <h1>Food Calorie Scanner</h1>
+          <p>Take a photo or upload an image of any meal. Zed AI identifies every ingredient, calculates accurate calories, full macros and gives you personalised health advice.</p>
+        </div>
+
+        <!-- ── MAIN LAYOUT ──────────────── -->
+        <div class="cal-layout anim-2">
+
+          <!-- LEFT — capture -->
+          <div>
+            <!-- Mode tabs -->
+            <div class="mode-tabs" style="margin-bottom:1.1rem">
+              <button class="mode-tab active" id="tab-cam"    onclick="setMode('camera')">📷 Camera</button>
+              <button class="mode-tab"        id="tab-upload" onclick="setMode('upload')">🖼 Upload</button>
+            </div>
+
+            <!-- Capture card -->
+            <div class="capture-card">
+
+              <!-- CAMERA MODE -->
+              <div id="mode-camera">
+                <div class="viewfinder" id="viewfinder">
+                  <video id="cam-video" autoplay playsinline muted></video>
+                  <canvas id="cam-canvas"></canvas>
+                  <img id="preview-img" alt="Food photo"/>
+                  <span class="preview-badge" id="preview-badge">✓ Ready to scan</span>
+
+                  <div class="vf-frame">
+                    <div class="vf-box">
+                      <span class="vf-bl"></span>
+                      <span class="vf-br"></span>
+                    </div>
+                  </div>
+                  <div class="scan-sweep" id="scan-sweep"></div>
+
+                  <div class="vf-idle" id="vf-idle">
+                    <div class="vf-idle-icon">📷</div>
+                    <p>Start camera and point at your food to scan</p>
+                  </div>
+                </div>
+                <div class="cam-controls">
+                  <button class="btn btn-ghost"   id="btn-start"   onclick="startCamera()">▶ Start Camera</button>
+                  <button class="btn btn-primary" id="btn-capture" onclick="capturePhoto()" style="display:none">⊙ Capture</button>
+                  <button class="btn btn-ghost"   id="btn-retake"  onclick="retakePhoto()"  style="display:none">↺ Retake</button>
+                  <button class="btn btn-teal"    id="btn-scan-c"  onclick="scanCapture()"  style="display:none">🔍 Analyse Calories</button>
+                  <button class="btn btn-danger btn-sm" id="btn-stop" onclick="stopCamera()" style="display:none">✕</button>
+                </div>
+              </div>
+
+              <!-- UPLOAD MODE -->
+              <div id="mode-upload" style="display:none;padding:1.2rem">
+                <div class="upload-zone" id="upload-zone"
+                     onclick="document.getElementById('file-input').click()"
+                     ondragover="event.preventDefault();this.classList.add('drag-over')"
+                     ondragleave="this.classList.remove('drag-over')"
+                     ondrop="handleDrop(event)">
+                  <div style="font-size:3.2rem;opacity:.42">🍽️</div>
+                  <h3>Drop food photo here</h3>
+                  <p>JPG, PNG, WEBP — any meal, dish, snack or drink works</p>
+                  <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('file-input').click()">Choose Photo</button>
+                </div>
+                <input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)"/>
+                <div id="upload-preview" style="display:none;margin-top:1rem">
+                  <img id="upload-img" style="width:100%;border-radius:var(--radius-md);border:1.5px solid var(--border);max-height:300px;object-fit:contain;background:#000" alt=""/>
+                  <div style="display:flex;gap:.7rem;margin-top:.85rem">
+                    <button class="btn btn-ghost btn-sm" onclick="clearUpload()">✕ Clear</button>
+                    <button class="btn btn-primary" onclick="scanUpload()">🔍 Analyse Calories</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Portion adjuster -->
+              <div class="portion-row">
+                <span class="portion-label">Portion size</span>
+                <div class="portion-btns">
+                  <button class="portion-btn" onclick="changePortion(-0.25)">−</button>
+                  <span class="portion-val" id="portion-val">1×</span>
+                  <button class="portion-btn" onclick="changePortion(+0.25)">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT — results -->
+          <div class="result-panel" id="result-panel">
+
+            <!-- Empty state -->
+            <div class="result-empty" id="result-empty">
+              <div class="result-empty-icon">🍎</div>
+              <h3>Ready to scan your food</h3>
+              <p>Take a photo or upload an image of any meal, snack or drink.</p>
+              <div class="feature-list">
+                <div style="font-size:var(--text-xs);font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.2rem">What Zed analyses:</div>
+                <div><span>🔥</span> Accurate calories with min/max range</div>
+                <div><span>🥩</span> Protein, carbs, fat, fibre, sugar</div>
+                <div><span>🥗</span> Every ingredient identified & counted</div>
+                <div><span>📊</span> % of daily calorie goal</div>
+                <div><span>💡</span> Personalised health rating + advice</div>
+              </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="result-loading" id="result-loading">
+              <div class="spin"></div>
+              <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:var(--text-md)" id="loading-title">Analysing your food…</div>
+              <p id="loading-sub">Identifying ingredients and calculating accurate nutrition data.</p>
+            </div>
+
+            <!-- Result card -->
+            <div class="calorie-card" id="calorie-card">
+
+              <!-- Dish + confidence -->
+              <div class="cc-header">
+                <div class="cc-icon" id="dish-emoji">🍽️</div>
+                <div style="flex:1;min-width:0">
+                  <div class="cc-dish" id="dish-name">Loading…</div>
+                  <div class="cc-conf" id="dish-conf"></div>
+                </div>
+              </div>
+
+              <!-- Big calorie display -->
+              <div class="cal-display">
+                <div>
+                  <div class="cal-num" id="cal-num">—</div>
+                  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.3rem">
+                    <span class="cal-unit">kcal per serving</span>
+                    <span id="portion-note" style="font-size:var(--text-xs);color:var(--teal-light);font-weight:600"></span>
+                  </div>
+                </div>
+                <div class="cal-range" id="cal-range"></div>
+              </div>
+
+              <!-- Daily % bar -->
+              <div class="daily-pct">
+                <div class="daily-pct-label">
+                  <span style="font-size:var(--text-sm);color:var(--muted)">% of daily goal (2000 kcal)</span>
+                  <span id="daily-pct-val">—%</span>
+                </div>
+                <div class="daily-bar"><div class="daily-bar-fill" id="daily-bar-fill" style="width:0%"></div></div>
+              </div>
+
+              <!-- Macros -->
+              <div>
+                <div class="ing-header" style="margin-bottom:.65rem">Macronutrients</div>
+                <div class="macros-grid">
+                  <div class="macro-card">
+                    <div class="macro-val" id="m-protein" style="color:#4fc8e0">—</div>
+                    <div class="macro-unit">g</div>
+                    <div class="macro-name">Protein</div>
+                  </div>
+                  <div class="macro-card">
+                    <div class="macro-val" id="m-carbs" style="color:#ffaa44">—</div>
+                    <div class="macro-unit">g</div>
+                    <div class="macro-name">Carbs</div>
+                  </div>
+                  <div class="macro-card">
+                    <div class="macro-val" id="m-fat" style="color:#ff5c7a">—</div>
+                    <div class="macro-unit">g</div>
+                    <div class="macro-name">Fat</div>
+                  </div>
+                  <div class="macro-card">
+                    <div class="macro-val" id="m-fibre" style="color:#00d4a0">—</div>
+                    <div class="macro-unit">g</div>
+                    <div class="macro-name">Fibre</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Ingredients -->
+              <div class="ingredients-section">
+                <div class="ing-header">Detected Ingredients</div>
+                <div id="ingredients-list"></div>
+              </div>
+
+              <!-- Health rating -->
+              <div class="health-rating" id="health-rating">
+                <span style="font-size:1.3rem" id="hr-icon">✅</span>
+                <span id="hr-text">Analysing health score…</span>
+              </div>
+
+              <!-- AI advice -->
+              <div class="ai-advice" id="ai-advice"></div>
+
+              <!-- Actions -->
+              <div class="result-actions">
+                <button class="btn btn-primary"  onclick="logMeal()">📝 Add to Daily Log</button>
+                <button class="btn btn-teal"     onclick="clearResult()">↺ Scan Another</button>
+                <a href="chat.html" class="btn btn-ghost">💬 Ask AI More</a>
+              </div>
+
+            </div><!-- /calorie-card -->
+          </div><!-- /result-panel -->
+        </div><!-- /cal-layout -->
+
+        <!-- ── DAILY LOG ──────────────── -->
+        <div class="daily-log-card anim-3">
+          <div class="dl-header">
+            <div class="dl-title">📅 Today's Food Log</div>
+            <div style="font-size:var(--text-xs);color:var(--muted)" id="log-date"></div>
+          </div>
+
+          <!-- Totals -->
+          <div class="dl-totals">
+            <div class="dl-total">
+              <div class="dl-total-val" id="tot-cal" style="color:var(--teal-light)">0</div>
+              <div class="dl-total-lbl">kcal eaten</div>
+            </div>
+            <div class="dl-total">
+              <div class="dl-total-val" id="tot-protein" style="color:#4fc8e0">0g</div>
+              <div class="dl-total-lbl">Protein</div>
+            </div>
+            <div class="dl-total">
+              <div class="dl-total-val" id="tot-fat" style="color:#ff5c7a">0g</div>
+              <div class="dl-total-lbl">Fat</div>
+            </div>
+          </div>
+
+          <!-- Goal bar -->
+          <div class="goal-bar">
+            <div class="goal-meta">
+              <span>Daily goal: <strong id="goal-cal">2,000</strong> kcal</span>
+              <span id="goal-remain" style="color:var(--teal-light)"></span>
+            </div>
+            <div class="goal-bar-track">
+              <div class="goal-bar-fill ok" id="goal-fill" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- Log items -->
+          <div id="log-list" style="margin-top:1.1rem">
+            <div class="dl-empty">No meals logged today. Scan your food above to get started.</div>
+          </div>
+        </div>
+
+      </div><!-- /cal-wrap -->
+      <div class="page-footer">Developed by ACE. Zed does not replace professional nutritional advice. Calorie estimates may vary ±10–15% based on portion size and preparation method.</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="zed-core.js"></script>
+<script>
+zedHideLoader();
+
+// ── State ─────────────────────────────────────────────────────
+let _user     = null;
+let _profile  = null;
+let _stream   = null;
+let _captured = null;   // { base64, mimeType }
+let _upload   = null;   // { base64, mimeType }
+let _mode     = 'camera';
+let _portion  = 1.0;
+let _lastResult = null;
+let _dailyLog   = [];
+const DAILY_GOAL = 2000;
+
+// ── Date header ────────────────────────────────────────────────
+document.getElementById('log-date').textContent = new Date().toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' });
+
+// ── Mode switching ─────────────────────────────────────────────
+function setMode(m) {
+  _mode = m;
+  document.getElementById('mode-camera').style.display = m === 'camera' ? '' : 'none';
+  document.getElementById('mode-upload').style.display = m === 'upload' ? '' : 'none';
+  document.getElementById('tab-cam').classList.toggle('active',    m === 'camera');
+  document.getElementById('tab-upload').classList.toggle('active', m === 'upload');
+  if (m !== 'camera' && _stream) stopCamera();
+}
+
+// ── Portion control ────────────────────────────────────────────
+function changePortion(delta) {
+  _portion = Math.max(0.25, Math.min(4, parseFloat((_portion + delta).toFixed(2))));
+  document.getElementById('portion-val').textContent = _portion + '×';
+  if (_lastResult) renderResult(_lastResult); // re-render with new portion
+}
+
+// ── Camera ────────────────────────────────────────────────────
+async function startCamera() {
+  try {
+    _stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:960} }
+    });
+    const v = document.getElementById('cam-video');
+    v.srcObject = _stream;
+    v.style.display = 'block';
+    document.getElementById('vf-idle').style.display    = 'none';
+    document.getElementById('scan-sweep').classList.add('active');
+    document.getElementById('btn-start').style.display   = 'none';
+    document.getElementById('btn-capture').style.display = '';
+    document.getElementById('btn-stop').style.display    = '';
+  } catch(e) {
+    zedToast('Camera access denied — use Upload mode instead', 'error');
+    setMode('upload');
+  }
+}
+
+function capturePhoto() {
+  const v = document.getElementById('cam-video');
+  const c = document.getElementById('cam-canvas');
+  c.width  = v.videoWidth  || 640;
+  c.height = v.videoHeight || 480;
+  c.getContext('2d').drawImage(v, 0, 0);
+  const url = c.toDataURL('image/jpeg', 0.9);
+  _captured = { base64: url.split(',')[1], mimeType: 'image/jpeg' };
+
+  const p = document.getElementById('preview-img');
+  p.src = url; p.style.display = 'block';
+  v.style.display = 'none';
+  document.getElementById('preview-badge').style.display    = 'block';
+  document.getElementById('scan-sweep').classList.remove('active');
+  document.getElementById('btn-capture').style.display = 'none';
+  document.getElementById('btn-retake').style.display  = '';
+  document.getElementById('btn-scan-c').style.display  = '';
+}
+
+function retakePhoto() {
+  _captured = null;
+  document.getElementById('preview-img').style.display    = 'none';
+  document.getElementById('preview-badge').style.display  = 'none';
+  document.getElementById('cam-video').style.display      = 'block';
+  document.getElementById('scan-sweep').classList.add('active');
+  document.getElementById('btn-retake').style.display  = 'none';
+  document.getElementById('btn-scan-c').style.display  = 'none';
+  document.getElementById('btn-capture').style.display = '';
+}
+
+function stopCamera() {
+  if (_stream) { _stream.getTracks().forEach(t=>t.stop()); _stream = null; }
+  document.getElementById('cam-video').style.display   = 'none';
+  document.getElementById('vf-idle').style.display     = 'flex';
+  document.getElementById('scan-sweep').classList.remove('active');
+  document.getElementById('btn-start').style.display   = '';
+  document.getElementById('btn-capture').style.display = 'none';
+  document.getElementById('btn-stop').style.display    = 'none';
+}
+
+function scanCapture() {
+  if (!_captured) { zedToast('Capture a photo first', 'warn'); return; }
+  analyseFood(_captured.base64, _captured.mimeType);
+}
+
+// ── Upload ────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) processFile(f);
+}
+function handleFileSelect(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
+function processFile(file) {
+  if (!file.type.startsWith('image/')) { zedToast('Please upload an image file', 'warn'); return; }
+  const r = new FileReader();
+  r.onload = ev => {
+    const url = ev.target.result;
+    _upload = { base64: url.split(',')[1], mimeType: file.type };
+    document.getElementById('upload-img').src = url;
+    document.getElementById('upload-preview').style.display = 'block';
+    document.getElementById('upload-zone').style.display    = 'none';
+  };
+  r.readAsDataURL(file);
+}
+function clearUpload() {
+  _upload = null;
+  document.getElementById('upload-preview').style.display = 'none';
+  document.getElementById('upload-zone').style.display    = '';
+  document.getElementById('file-input').value = '';
+}
+function scanUpload() {
+  if (!_upload) { zedToast('Please upload an image first', 'warn'); return; }
+  analyseFood(_upload.base64, _upload.mimeType);
+}
+
+// ── Core AI food analysis ──────────────────────────────────────
+async function analyseFood(base64, mimeType) {
+  showLoading();
+
+  const profileCtx = _profile
+    ? `Patient context: Age ${_profile.age||'?'}, ${_profile.gender||'?'}, weight ${_profile.weight||'?'}kg. Conditions: ${_profile.conditions||'None'}. Diet notes: ${_profile.diet||'None'}.`
+    : '';
+
+  const prompt = `You are a clinical nutritionist and food recognition AI with access to detailed nutritional databases (USDA FoodData Central, NCCDB). Analyse this food image with maximum accuracy.
+
+${profileCtx}
+
+Identify every food item visible. Use standard serving sizes based on visual estimation. Be precise.
+
+Return ONLY a valid JSON object (no markdown, no extra text):
+{
+  "dish_name": "Descriptive name of the full meal",
+  "dish_emoji": "Most appropriate single emoji",
+  "confidence": "high|medium|low",
+  "confidence_note": "Brief note on confidence level",
+  "serving_description": "e.g. 1 plate (~350g) or 1 cup (~240ml)",
+  "calories": 520,
+  "calories_min": 470,
+  "calories_max": 580,
+  "protein_g": 28.5,
+  "carbs_g": 55.2,
+  "fat_g": 18.1,
+  "fibre_g": 6.3,
+  "sugar_g": 8.4,
+  "sodium_mg": 420,
+  "ingredients": [
+    { "name": "White rice (cooked)", "amount": "150g", "calories": 195 },
+    { "name": "Chicken breast (grilled)", "amount": "120g", "calories": 198 }
+  ],
+  "health_rating": "excellent|good|moderate|poor",
+  "health_note": "One sentence on this meal's nutritional quality",
+  "advice": "2-3 sentences of personalised dietary advice for this specific meal, including any tips to make it healthier or balance it with other meals today.",
+  "cannot_identify": false
+}
+
+If you cannot identify food in the image, set cannot_identify:true and all numbers to 0.`;
+
+  try {
+    const raw = await ZedAI.analyzeImage(base64, mimeType, prompt);
+    const data = JSON.parse(raw.replace(/```json|```/g,'').trim());
+
+    if (data.cannot_identify) {
+      hideLoading();
+      zedToast('Could not identify food. Try a clearer photo with better lighting.', 'warn');
+      showEmpty();
+      return;
+    }
+
+    _lastResult = data;
+    renderResult(data);
+  } catch(e) {
+    console.error('Analysis error:', e);
+    hideLoading();
+    zedToast('Analysis failed — ' + (e.message || 'check your connection'), 'error');
+    showEmpty();
+  }
+}
+
+// ── Render result ──────────────────────────────────────────────
+function renderResult(data) {
+  hideLoading();
+  document.getElementById('result-empty').style.display = 'none';
+
+  const p = _portion;
+  const cal     = Math.round(data.calories     * p);
+  const calMin  = Math.round(data.calories_min * p);
+  const calMax  = Math.round(data.calories_max * p);
+  const protein = +(data.protein_g * p).toFixed(1);
+  const carbs   = +(data.carbs_g   * p).toFixed(1);
+  const fat     = +(data.fat_g     * p).toFixed(1);
+  const fibre   = +(data.fibre_g   * p).toFixed(1);
+  const pct     = Math.round((cal / DAILY_GOAL) * 100);
+
+  // Header
+  document.getElementById('dish-emoji').textContent = data.dish_emoji || '🍽️';
+  document.getElementById('dish-name').textContent  = data.dish_name;
+  const confColors = { high:'var(--success)', medium:'var(--warn)', low:'var(--muted)' };
+  document.getElementById('dish-conf').innerHTML =
+    `<span style="color:${confColors[data.confidence]||'var(--muted)'}">● ${data.confidence} confidence</span>` +
+    (data.confidence_note ? ` — ${data.confidence_note}` : '');
+
+  // Calories
+  document.getElementById('cal-num').textContent = cal.toLocaleString();
+  document.getElementById('cal-range').innerHTML = `Range<br><strong>${calMin.toLocaleString()}–${calMax.toLocaleString()} kcal</strong>`;
+  document.getElementById('portion-note').textContent = p !== 1 ? `(${p}× portion)` : '';
+
+  // Daily %
+  document.getElementById('daily-pct-val').textContent = pct + '%';
+  const fill = document.getElementById('daily-bar-fill');
+  fill.style.width = Math.min(pct, 100) + '%';
+  fill.style.background = pct > 60 ? 'linear-gradient(90deg,var(--warn),var(--error))' : 'linear-gradient(90deg,var(--teal),var(--sky))';
+
+  // Macros
+  document.getElementById('m-protein').textContent = protein;
+  document.getElementById('m-carbs').textContent   = carbs;
+  document.getElementById('m-fat').textContent     = fat;
+  document.getElementById('m-fibre').textContent   = fibre;
+
+  // Ingredients
+  const ingList = document.getElementById('ingredients-list');
+  if (data.ingredients && data.ingredients.length) {
+    ingList.innerHTML = data.ingredients.slice(0,10).map(i=>`
+      <div class="ing-item">
+        <span class="ing-name">${i.name} <span style="color:var(--muted);font-size:var(--text-xs)">${i.amount}</span></span>
+        <span class="ing-cal">${Math.round(i.calories * p)} kcal</span>
+      </div>`).join('');
+  } else {
+    ingList.innerHTML = '<div style="color:var(--muted);font-size:var(--text-sm);padding:.5rem 0">Ingredient breakdown not available.</div>';
+  }
+
+  // Health rating
+  const HR = {
+    excellent: { cls:'excellent', icon:'🌟' },
+    good:      { cls:'good',      icon:'✅' },
+    moderate:  { cls:'moderate',  icon:'⚠️' },
+    poor:      { cls:'poor',      icon:'🚨' }
+  };
+  const hr = HR[data.health_rating] || HR.good;
+  document.getElementById('health-rating').className = `health-rating ${hr.cls}`;
+  document.getElementById('hr-icon').textContent     = hr.icon;
+  document.getElementById('hr-text').textContent     = data.health_note || '';
+
+  // Advice
+  if (data.advice) {
+    document.getElementById('ai-advice').innerHTML = `<strong>Nutrition tip:</strong> ${data.advice}`;
+  }
+
+  const card = document.getElementById('calorie-card');
+  card.classList.add('visible');
+  card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+// ── Daily log ──────────────────────────────────────────────────
+function logMeal() {
+  if (!_lastResult) return;
+  const p = _portion;
+  const entry = {
+    id:      Date.now(),
+    name:    _lastResult.dish_name,
+    emoji:   _lastResult.dish_emoji || '🍽️',
+    cal:     Math.round(_lastResult.calories * p),
+    protein: +(_lastResult.protein_g * p).toFixed(1),
+    fat:     +(_lastResult.fat_g     * p).toFixed(1),
+    portion: p,
+    time:    new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})
+  };
+  _dailyLog.push(entry);
+  saveLog();
+  renderLog();
+  zedToast(`${entry.name} added to today's log ✓`, 'success');
+}
+
+function removeLogEntry(id) {
+  _dailyLog = _dailyLog.filter(e => e.id !== id);
+  saveLog();
+  renderLog();
+}
+
+function clearLog() {
+  if (!_dailyLog.length) return;
+  _dailyLog = [];
+  saveLog();
+  renderLog();
+  zedToast('Daily log cleared', 'info');
+}
+
+function saveLog() {
+  try {
+    const key = 'zed-calorie-log-' + new Date().toDateString();
+    localStorage.setItem(key, JSON.stringify(_dailyLog));
+  } catch(e) {}
+}
+
+function loadLog() {
+  try {
+    const key = 'zed-calorie-log-' + new Date().toDateString();
+    const saved = localStorage.getItem(key);
+    if (saved) _dailyLog = JSON.parse(saved);
+  } catch(e) {}
+}
+
+function renderLog() {
+  const totCal     = _dailyLog.reduce((a,e) => a + e.cal, 0);
+  const totProtein = +(_dailyLog.reduce((a,e) => a + e.protein, 0)).toFixed(1);
+  const totFat     = +(_dailyLog.reduce((a,e) => a + e.fat,     0)).toFixed(1);
+
+  document.getElementById('tot-cal').textContent     = totCal.toLocaleString();
+  document.getElementById('tot-protein').textContent = totProtein + 'g';
+  document.getElementById('tot-fat').textContent     = totFat + 'g';
+
+  const pct      = Math.round((totCal / DAILY_GOAL) * 100);
+  const remain   = DAILY_GOAL - totCal;
+  const fill     = document.getElementById('goal-fill');
+  fill.style.width = Math.min(pct, 100) + '%';
+  fill.className = 'goal-bar-fill ' + (pct >= 100 ? 'over' : 'ok');
+  document.getElementById('goal-remain').textContent = remain > 0
+    ? `${remain.toLocaleString()} kcal remaining`
+    : `${Math.abs(remain).toLocaleString()} kcal over goal`;
+
+  const list = document.getElementById('log-list');
+  if (!_dailyLog.length) {
+    list.innerHTML = '<div class="dl-empty">No meals logged today. Scan your food above to get started.</div>';
+    return;
+  }
+  list.innerHTML = [..._dailyLog].reverse().map(e => `
+    <div class="dl-item">
+      <div class="dl-ico">${e.emoji}</div>
+      <div class="dl-info">
+        <div class="dl-name">${e.name}</div>
+        <div class="dl-meta">${e.time} · ${e.portion}× portion · ${e.protein}g protein · ${e.fat}g fat</div>
+      </div>
+      <div class="dl-cal">${e.cal.toLocaleString()}</div>
+      <button class="dl-del" onclick="removeLogEntry(${e.id})" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+// ── UI helpers ────────────────────────────────────────────────
+function showLoading() {
+  document.getElementById('result-empty').style.display   = 'none';
+  document.getElementById('calorie-card').classList.remove('visible');
+  document.getElementById('result-loading').classList.add('active');
+}
+function hideLoading() {
+  document.getElementById('result-loading').classList.remove('active');
+}
+function showEmpty() {
+  document.getElementById('result-empty').style.display = '';
+}
+function clearResult() {
+  _lastResult = null;
+  _portion    = 1.0;
+  document.getElementById('portion-val').textContent = '1×';
+  document.getElementById('calorie-card').classList.remove('visible');
+  document.getElementById('result-empty').style.display = '';
+  if (_mode === 'camera') retakePhoto();
+  if (_mode === 'upload') clearUpload();
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+async function init() {
+  _user = await ZedAuth.requireAuth();
+  if (!_user) return;
+
+  const { data: profile } = await ZedProfile.get(_user.id);
+  _profile = profile;
+
+  const firstName = ZedProfile.displayName(profile, _user).split(' ')[0];
+  document.getElementById('sb-name').textContent = firstName || 'You';
+  if (profile?.blood_group) document.getElementById('sb-sub').textContent = `🩸 ${profile.blood_group}`;
+
+  // Set personalised daily goal if profile has weight/age
+  if (profile?.weight && profile?.age) {
+    const bmr = profile.gender === 'Female'
+      ? 10 * profile.weight + 6.25 * (profile.height || 165) - 5 * profile.age - 161
+      : 10 * profile.weight + 6.25 * (profile.height || 175) - 5 * profile.age + 5;
+    const goal = Math.round(bmr * 1.4); // sedentary TDEE
+    document.getElementById('goal-cal').textContent = goal.toLocaleString();
+    // Update DAILY_GOAL constant reference
+    window.DAILY_GOAL_PERSONAL = goal;
+  }
+
+  loadLog();
+  renderLog();
+}
+
+init();
+</script>
+</body>
+</html>

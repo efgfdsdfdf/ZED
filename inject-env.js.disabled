@@ -1,0 +1,35 @@
+// inject-env.js (ES Module version)
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
+
+const inputFile = path.join(__dirname, 'zed-core.js');
+const outputFile = path.join(__dirname, 'dist', 'zed-core.js');
+
+let content = fs.readFileSync(inputFile, 'utf8');
+const key = process.env.ANTHROPIC_KEY;
+
+if (!key) {
+  console.error('❌ ANTHROPIC_KEY not found in .env');
+  process.exit(1);
+}
+
+// Check if the placeholder exists
+if (!content.includes('%%ANTHROPIC_KEY%%')) {
+  console.error('❌ Placeholder %%ANTHROPIC_KEY%% not found in zed-core.js');
+  process.exit(1);
+}
+
+content = content.replace('%%ANTHROPIC_KEY%%', key);
+
+// Create dist directory if it doesn't exist
+fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+fs.writeFileSync(outputFile, content);
+console.log('✅ API key injected into', outputFile);
+console.log('📍 Original file kept intact with placeholder');

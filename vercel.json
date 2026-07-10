@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "framework": null,
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/overpass",
+      "destination": "/api/overpass.js"
+    },
+    {
+      "source": "/api/admin/overview",
+      "destination": "/api/admin/overview.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.js"
+    }
+  ],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    },
+    "api/admin/overview.js": {
+      "maxDuration": 60
+    },
+    "api/overpass.js": {
+      "maxDuration": 60
+    }
+  }
+}
